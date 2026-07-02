@@ -1,11 +1,8 @@
-# HelpDesk AI — Pinned Dependencies
-# Install: pip install -r requirements.txt
-
-numpy==1.26.4
-scikit-learn==1.4.2
-nltk==3.8.1
-streamlit==1.35.0
-groq==0.9.0
-matplotlib==3.8.4
-pandas==2.2.2
-tqdm==4.66.2
+streamlit
+groq
+numpy
+pandas
+scikit-learn
+nltk
+matplotlib
+tqdm
