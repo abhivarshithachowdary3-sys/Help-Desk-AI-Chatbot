@@ -1,0 +1,92 @@
+"""
+Phase 1 — Data Pipeline (Domain-Specific Support Dataset version)
+Loads support_dataset.json, cleans, builds vocab, creates tensors.
+"""
+import os, re, json, pickle
+import numpy as np
+from collections import Counter
+
+MAX_LEN = 18
+MIN_FREQ = 1
+PAD,SOS,EOS,UNK = "<PAD>","<SOS>","<EOS>","<UNK>"
+SPECIALS = [PAD,SOS,EOS,UNK]
+
+BASE = os.path.dirname(os.path.abspath(__file__))
+DATA = os.path.join(BASE, "..", "data")
+os.makedirs(DATA, exist_ok=True)
+
+class Vocabulary:
+    def __init__(self):
+        self.word_freq = Counter()
+        self.word2idx = {t:i for i,t in enumerate(SPECIALS)}
+        self.idx2word = {i:t for t,i in self.word2idx.items()}
+    def add(self, s):
+        for w in s.split(): self.word_freq[w]+=1
+    def build(self, min_freq=MIN_FREQ):
+        for w in sorted([w for w,f in self.word_freq.items() if f>=min_freq]):
+            if w not in self.word2idx:
+                idx=len(self.word2idx); self.word2idx[w]=idx; self.idx2word[idx]=w
+    def encode(self, s):
+        unk=self.word2idx[UNK]
+        ids=[self.word2idx.get(w,unk) for w in s.split()]
+        ids.append(self.word2idx[EOS])
+        return ids
+    def decode(self, ids):
+        out=[]
+        for i in ids:
+            t=self.idx2word.get(i,UNK)
+            if t==EOS: break
+            if t not in (PAD,SOS): out.append(t)
+        return " ".join(out)
+    def __len__(self): return len(self.word2idx)
+    def save(self,p): pickle.dump(self, open(p,"wb"))
+    @staticmethod
+    def load(p): return pickle.load(open(p,"rb"))
+
+
+def clean(text):
+    text=text.lower().strip()
+    text=re.sub(r"[^a-z0-9\s]","",text)
+    text=re.sub(r"\s+"," ",text).strip()
+    return text
+
+
+def pad(seq, L, pad_idx=0):
+    return seq[:L] + [pad_idx]*max(0, L-len(seq))
+
+
+def run():
+    with open(os.path.join(DATA,"support_dataset.json")) as f:
+        raw = json.load(f)
+
+    pairs = [(clean(p["question"]), clean(p["answer"])) for p in raw]
+    pairs = [(q,a) for q,a in pairs if q and a and len(q.split())<=MAX_LEN and len(a.split())<=MAX_LEN]
+    print(f"Valid pairs: {len(pairs):,}")
+
+    vocab = Vocabulary()
+    for q,a in pairs:
+        vocab.add(q); vocab.add(a)
+    vocab.build()
+    print(f"Vocab size: {len(vocab):,}")
+    vocab.save(os.path.join(DATA,"vocab.pkl"))
+
+    src,tgt,src_l,tgt_l=[],[],[],[]
+    pad_idx = vocab.word2idx[PAD]
+    for q,a in pairs:
+        qi,ai = vocab.encode(q), vocab.encode(a)
+        src_l.append(min(len(qi),MAX_LEN+1)); tgt_l.append(min(len(ai),MAX_LEN+1))
+        src.append(pad(qi,MAX_LEN+1,pad_idx)); tgt.append(pad(ai,MAX_LEN+1,pad_idx))
+
+    src=np.array(src,dtype=np.int32); tgt=np.array(tgt,dtype=np.int32)
+    src_l=np.array(src_l,dtype=np.int32); tgt_l=np.array(tgt_l,dtype=np.int32)
+    np.savez(os.path.join(DATA,"tensors.npz"), src=src,tgt=tgt,src_lens=src_l,tgt_lens=tgt_l)
+    print(f"Tensors: {src.shape}")
+
+    print("\nSample:")
+    for i in range(3):
+        print(" Q:", vocab.decode(src[i].tolist()))
+        print(" A:", vocab.decode(tgt[i].tolist()))
+    return vocab, src, tgt, src_l, tgt_l
+
+if __name__=="__main__":
+    run()

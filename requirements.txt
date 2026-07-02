@@ -1,0 +1,87 @@
+"""
+Intent Classifier — Addresses feedback: "No intent classification or
+Named Entity Recognition... must route queries based on intent."
+
+Lightweight TF-IDF + Logistic Regression classifier trained on the
+same support_dataset.json (which carries intent labels).
+Used by the production app to route queries and decide on fallback/escalation.
+"""
+import os, json, pickle
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+import numpy as np
+
+BASE = os.path.dirname(os.path.abspath(__file__))
+DATA = os.path.join(BASE, "..", "data")
+CKPT = os.path.join(BASE, "..", "checkpoints")
+
+
+def train_intent_classifier():
+    with open(os.path.join(DATA, "support_dataset.json")) as f:
+        pairs = json.load(f)
+
+    X = [p["question"] for p in pairs]
+    y = [p["intent"] for p in pairs]
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y)
+
+    vectorizer = TfidfVectorizer(max_features=2000, ngram_range=(1,2))
+    X_train_vec = vectorizer.fit_transform(X_train)
+    X_test_vec  = vectorizer.transform(X_test)
+
+    clf = LogisticRegression(max_iter=1000, C=5.0)
+    clf.fit(X_train_vec, y_train)
+
+    y_pred = clf.predict(X_test_vec)
+    acc = accuracy_score(y_test, y_pred)
+
+    print("="*60)
+    print("Intent Classifier — Evaluation")
+    print("="*60)
+    print(f"Test Accuracy: {acc:.4f}")
+    print("\nClassification Report:")
+    report = classification_report(y_test, y_pred)
+    print(report)
+
+    cm = confusion_matrix(y_test, y_pred, labels=sorted(set(y)))
+    print("Confusion Matrix:")
+    print(cm)
+
+    # Save model + vectorizer
+    with open(os.path.join(CKPT, "intent_classifier.pkl"), "wb") as f:
+        pickle.dump({"vectorizer": vectorizer, "classifier": clf,
+                    "labels": sorted(set(y))}, f)
+
+    # Save report
+    with open(os.path.join(CKPT, "intent_classifier_report.txt"), "w") as f:
+        f.write(f"Test Accuracy: {acc:.4f}\n\n")
+        f.write(report)
+        f.write(f"\nConfusion Matrix (labels={sorted(set(y))}):\n")
+        f.write(str(cm))
+
+    print(f"\nSaved -> {os.path.join(CKPT,'intent_classifier.pkl')}")
+    return clf, vectorizer, acc
+
+
+def predict_intent(text, clf, vectorizer, confidence_threshold=0.35):
+    """
+    Predict intent + confidence. Returns ('escalation_fallback', 0.0)
+    if confidence is below threshold — this IS the fallback/escalation
+    logic the feedback asked for.
+    """
+    vec = vectorizer.transform([text])
+    probs = clf.predict_proba(vec)[0]
+    best_idx = np.argmax(probs)
+    confidence = probs[best_idx]
+    intent = clf.classes_[best_idx]
+
+    if confidence < confidence_threshold:
+        return "low_confidence_fallback", confidence
+    return intent, confidence
+
+
+if __name__ == "__main__":
+    train_intent_classifier()

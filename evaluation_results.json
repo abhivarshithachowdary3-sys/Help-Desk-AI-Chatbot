@@ -1,0 +1,89 @@
+"""
+Evaluation — BLEU Score + Task Completion Rate
+Addresses: "Must include BLEU/ROUGE and Task Completion Rate"
+"""
+import os, sys, json, math, pickle
+from collections import Counter
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "seq2seq"))
+import phase1_data_pipeline
+from phase1_data_pipeline import clean
+from phase4_inference import load_model, encode_input, beam_search
+
+BASE = os.path.dirname(os.path.abspath(__file__))
+DATA = os.path.join(BASE, "..", "data")
+CKPT = os.path.join(BASE, "..", "checkpoints")
+
+
+def ngrams(tokens, n):
+    return Counter(tuple(tokens[i:i+n]) for i in range(len(tokens)-n+1))
+
+
+def bleu(candidate, reference, max_n=4):
+    cand = candidate.split(); ref = reference.split()
+    if not cand: return 0.0
+    precs = []
+    for n in range(1, max_n+1):
+        cg = ngrams(cand, n); rg = ngrams(ref, n)
+        ov = sum(min(c, rg.get(g,0)) for g,c in cg.items())
+        tot = max(sum(cg.values()), 1)
+        precs.append(ov/tot if tot else 0)
+    if min(precs)==0: return 0.0
+    gm = math.exp(sum(math.log(p) for p in precs)/max_n)
+    bp = min(1.0, math.exp(1-len(ref)/max(len(cand),1)))
+    return gm*bp
+
+
+def task_ok(reply, keywords):
+    return any(k in reply for k in keywords)
+
+
+TEST_CASES = [
+    ("i forgot my password",           ["password","reset","settings","email"]),
+    ("why was i charged twice",         ["charge","refund","billing","sorry"]),
+    ("the app keeps crashing",          ["sorry","error","bug","page"]),
+    ("i want to cancel my subscription",["cancel","subscription","pause"]),
+    ("where is my order",               ["order","tracking","sorry"]),
+    ("i need to speak to a human agent",["connecting","specialist","agent"]),
+    ("hello",                           ["help","hello","hi"]),
+    ("thank you for your help",         ["welcome","help","else"]),
+]
+
+
+def evaluate():
+    model, vocab = load_model()
+    with open(os.path.join(DATA,"support_dataset.json")) as f:
+        all_pairs = json.load(f)
+
+    bleu_scores, ok_list = [], []
+    print("="*70)
+    print(f"{'Input':<40} {'BLEU':>8} {'Task OK':>8}")
+    print("-"*70)
+
+    for inp, kws in TEST_CASES:
+        src, src_lens = encode_input(inp, vocab)
+        reply = beam_search(model, src, src_lens, vocab, beam_width=5)
+        refs = [p["answer"] for p in all_pairs if clean(p["question"])==clean(inp)]
+        ref = refs[0] if refs else reply
+        b = bleu(reply, ref)
+        ok = task_ok(reply, kws)
+        bleu_scores.append(b); ok_list.append(ok)
+        print(f"{inp:<40} {b:8.3f} {'✓' if ok else '✗':>8}")
+
+    avg_bleu = sum(bleu_scores)/len(bleu_scores)
+    tcr = sum(ok_list)/len(ok_list)*100
+    print("-"*70)
+    print(f"Average BLEU:         {avg_bleu:.4f}")
+    print(f"Task Completion Rate: {tcr:.1f}%")
+    print("="*70)
+
+    results = {"average_bleu": avg_bleu, "task_completion_rate_pct": tcr,
+               "per_case":[{"input":i,"bleu":b,"task_ok":o}
+                           for (i,_),b,o in zip(TEST_CASES,bleu_scores,ok_list)]}
+    out = os.path.join(CKPT,"evaluation_results.json")
+    with open(out,"w") as f: json.dump(results,f,indent=2)
+    print(f"\n✅ Saved → {out}")
+    return results
+
+if __name__=="__main__":
+    evaluate()

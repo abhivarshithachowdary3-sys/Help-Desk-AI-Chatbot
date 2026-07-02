@@ -1,0 +1,26 @@
+Test Accuracy: 1.0000
+
+                precision    recall  f1-score   support
+
+       account       1.00      1.00      1.00        99
+       billing       1.00      1.00      1.00       101
+  cancellation       1.00      1.00      1.00        96
+    escalation       1.00      1.00      1.00       103
+order_shipping       1.00      1.00      1.00       106
+password_reset       1.00      1.00      1.00        94
+     smalltalk       1.00      1.00      1.00       102
+     technical       1.00      1.00      1.00        99
+
+      accuracy                           1.00       800
+     macro avg       1.00      1.00      1.00       800
+  weighted avg       1.00      1.00      1.00       800
+
+Confusion Matrix (labels=['account', 'billing', 'cancellation', 'escalation', 'order_shipping', 'password_reset', 'smalltalk', 'technical']):
+[[ 99   0   0   0   0   0   0   0]
+ [  0 101   0   0   0   0   0   0]
+ [  0   0  96   0   0   0   0   0]
+ [  0   0   0 103   0   0   0   0]
+ [  0   0   0   0 106   0   0   0]
+ [  0   0   0   0   0  94   0   0]
+ [  0   0   0   0   0   0 102   0]
+ [  0   0   0   0   0   0   0  99]]
